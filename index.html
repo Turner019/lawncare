@@ -1385,9 +1385,33 @@ function getBestDay(task){
 }
 
 // ═══════════════════════════════════════════════
-// SOIL LOGIC
+// SOIL LOGIC — 5-DAY AVERAGE ENGINE
 // ═══════════════════════════════════════════════
 function getLatestSoil(){return S.soilLogs.length?S.soilLogs[0]:null;}
+
+// Returns {avg, days, isPartial, readings[], newestDate, oldestDate}
+// Uses most recent reading per day, up to last 5 distinct days
+function getSoilAverage(){
+  if(!S.soilLogs||!S.soilLogs.length) return null;
+  // Deduplicate by date — keep most recent log per date (logs already sorted desc)
+  var byDate={};
+  S.soilLogs.forEach(function(r){
+    if(!byDate[r.reading_date]) byDate[r.reading_date]=r;
+  });
+  // Sort dates descending, take last 5
+  var dates=Object.keys(byDate).sort().reverse().slice(0,5);
+  var readings=dates.map(function(d){return byDate[d];});
+  var avg=readings.reduce(function(s,r){return s+r.temp_f;},0)/readings.length;
+  return{
+    avg:Math.round(avg*10)/10,
+    days:readings.length,
+    isPartial:readings.length<5,
+    readings:readings,
+    newestDate:readings[0].reading_date,
+    oldestDate:readings[readings.length-1].reading_date,
+  };
+}
+
 function getSoilZone(f){
   if(f<35)return{label:'Frozen',              cls:'gkp-cold',color:'#4a90d9'};
   if(f<50)return{label:'Cool / Dormant',      cls:'gkp-cool',color:'#5ab070'};
@@ -1396,19 +1420,24 @@ function getSoilZone(f){
   if(f<80)return{label:'Summer active',       cls:'gkp-sum', color:'#e87820'};
   return       {label:'Hot / Stress zone',    cls:'gkp-hot', color:'#e84040'};
 }
+
 function getSoilStatus(tid){
-  var rule=SOIL_RULES[tid],latest=getLatestSoil();
-  if(!rule)return{status:'unknown',icon:'❓',msg:'No soil rules for this task.'};
-  if(!latest)return{status:'unknown',icon:'🌡',msg:'No soil temp logged yet — add a reading on the Soil tab.'};
-  var t=latest.temp_f,age=daysBetween(latest.reading_date,todayISO());
-  var stale=age>7?' (reading is '+age+' days old — consider a fresh measurement)':'';
-  if(rule.closeAt&&t>=rule.closeAt)return{status:'no-go',icon:'🚫',msg:'Soil is '+t+'°F — pre-emergent window is CLOSED (crabgrass germinates above '+rule.closeAt+'°F). Do not apply.'+stale};
-  if(t<rule.minF)return{status:'too-cold',icon:'🥶',msg:'Soil is '+t+'°F — too cold. Needs above '+rule.minF+'°F to be effective.'+stale};
-  if(rule.warnAbove&&t>=rule.warnAbove)return{status:'caution',icon:'⚠️',msg:'Soil is '+t+'°F — marginal for seeding. Ideal is 50–65°F. Germination drops sharply above 72°F.'+stale};
-  if(t>rule.maxF)return{status:'caution',icon:'🌡',msg:'Soil is '+t+'°F — slightly above ideal (max '+rule.maxF+'°F). Monitor for stress.'+stale};
-  if(rule.closeAt){var m=rule.closeAt-t;return{status:'go',icon:'✅',msg:'Soil is '+t+'°F — window is OPEN. '+m+'°F margin before it closes at '+rule.closeAt+'°F. Apply soon!'+stale};}
-  return{status:'go',icon:'✅',msg:'Soil is '+t+'°F — conditions are ideal.'+stale};
+  var rule=SOIL_RULES[tid];
+  if(!rule) return{status:'unknown',icon:'&#x2753;',msg:'No soil rules for this task.'};
+  var sa=getSoilAverage();
+  if(!sa) return{status:'unknown',icon:'&#x1F321;',msg:'No soil temps logged yet &#x2014; add readings on the Soil tab. Aim for 5 consecutive days for the most accurate decision.'};
+  var t=sa.avg;
+  var dataNote=sa.isPartial
+    ?' <em>(based on '+sa.days+' day'+(sa.days>1?'s':'')+' of data &#x2014; log daily readings for a full 5-day average)</em>'
+    :'';
+  if(rule.closeAt&&t>=rule.closeAt) return{status:'no-go',icon:'&#x1F6AB;',msg:'5-day avg is '+t+'&#xB0;F &#x2014; above '+rule.closeAt+'&#xB0;F. Pre-emergent window is CLOSED. Crabgrass seeds germinate above this threshold &#x2014; the barrier product will not intercept them at this stage.'+dataNote};
+  if(t<rule.minF) return{status:'too-cold',icon:'&#x1F976;',msg:'5-day avg is '+t+'&#xB0;F &#x2014; below the '+rule.minF+'&#xB0;F minimum. Product needs warmer soil to activate. Applying now wastes product and may not provide any benefit.'+dataNote};
+  if(rule.warnAbove&&t>=rule.warnAbove) return{status:'caution',icon:'&#x26A0;',msg:'5-day avg is '+t+'&#xB0;F &#x2014; in the marginal range for seeding. Germination success drops significantly above 72&#xB0;F as heat stress overcomes the seed. Ideal window is 50&#x2013;65&#xB0;F.'+dataNote};
+  if(t>rule.maxF) return{status:'caution',icon:'&#x1F321;',msg:'5-day avg is '+t+'&#xB0;F &#x2014; slightly above ideal max ('+rule.maxF+'&#xB0;F). Monitor turf stress closely. Consider watering in early morning.'+dataNote};
+  if(rule.closeAt){var m=(rule.closeAt-t).toFixed(1);return{status:'go',icon:'&#x2705;',msg:'5-day avg is '+t+'&#xB0;F &#x2014; window is OPEN with '+m+'&#xB0;F of margin before closing at '+rule.closeAt+'&#xB0;F. Soil temperature rises roughly 1&#xB0;F per warm day in spring &#x2014; act within the next week.'+dataNote};}
+  return{status:'go',icon:'&#x2705;',msg:'5-day avg is '+t+'&#xB0;F &#x2014; ideal conditions. Product will activate effectively at this soil temperature.'+dataNote};
 }
+
 function tmpToGaugePct(f){return Math.min(100,Math.max(0,((f-20)/80)*100));}
 
 // ═══════════════════════════════════════════════
@@ -1416,58 +1445,80 @@ function tmpToGaugePct(f){return Math.min(100,Math.max(0,((f-20)/80)*100));}
 // Returns null if no adjustment needed, otherwise:
 // {type, pill, banner, adjustedStart, adjustedEnd}
 // ═══════════════════════════════════════════════
-function getSoilAdjustedWindow(task, latestSoil, today){
+function getSoilAdjustedWindow(task, soilAvg, today){
   var rule=SOIL_RULES[task.id];
-  if(!rule||!latestSoil) return null;
+  if(!rule||!soilAvg) return null;
 
-  var temp=latestSoil.temp_f;
-  var age=daysBetween(latestSoil.reading_date, today);
-  var staleNote=age>7?' Reading is '+age+' days old &#x2014; log a fresh measurement for accuracy.':'';
+  var temp=soilAvg.avg;
+  var days=soilAvg.days;
+  var dataCtx=soilAvg.isPartial
+    ? ' <em>('+days+'-day average &#x2014; log more daily readings to reach the full 5-day window)</em>'
+    : ' <em>(5-day average: '+soilAvg.readings.map(function(r){return r.temp_f+'&#xB0;';}).join(', ')+')</em>';
   var origStart=task.windowStart, origEnd=task.windowEnd;
   var beforeWindow=today<origStart, inWindow=today>=origStart&&today<=origEnd, pastWindow=today>origEnd;
 
-  // ── CLOSED: pre-emergent window past closeAt ──
+  // ── CLOSED: avg above closeAt ──
   if(rule.closeAt&&temp>=rule.closeAt){
     return{
       type:'closed',
       pill:'<span class="pill soil-closed">&#x1F321; Window closed</span>',
-      banner:'<div class="soil-adj-banner closed"><strong>&#x1F6AB; Pre-emergent window is CLOSED.</strong> Soil is '+temp+'&#xB0;F &#x2014; crabgrass has already germinated above '+rule.closeAt+'&#xB0;F. Do not apply &#x2014; it will not be effective this season.'+staleNote+'</div>',
+      banner:'<div class="soil-adj-banner closed">'
+        +'<strong>&#x1F6AB; Pre-emergent window is CLOSED.</strong><br>'
+        +'Your '+days+'-day soil avg is <strong>'+temp+'&#xB0;F</strong> &#x2014; above the '+rule.closeAt+'&#xB0;F threshold where crabgrass seeds have already germinated. '
+        +'Applying pre-emergent now creates a barrier too late &#x2014; seeds are past the stage where the product can stop them. '
+        +'Skip this season and resume the schedule next spring.'+dataCtx
+        +'</div>',
       adjustedStart:null, adjustedEnd:null
     };
   }
 
-  // ── EARLY: soil already in range before calendar window opens ──
+  // ── EARLY: avg in range before calendar window opens ──
   if(temp>=rule.minF&&beforeWindow){
-    var urgency=rule.closeAt?' Apply before soil hits '+rule.closeAt+'&#xB0;F (currently '+Math.round(rule.closeAt-temp)+'&#xB0;F margin).':' Apply while conditions are right.';
+    var margin=rule.closeAt?' You have '+(rule.closeAt-temp).toFixed(1)+'&#xB0;F before the window closes at '+rule.closeAt+'&#xB0;F &#x2014; soil warms ~1&#xB0;F per warm day in spring, so don\'t wait.':' Apply while conditions are favorable.';
     return{
       type:'early',
       pill:'<span class="pill soil-early">&#x1F321; Soil ready early</span>',
-      banner:'<div class="soil-adj-banner early"><strong>&#x1F7E2; Soil ready now &#x2014; move this up.</strong> Soil is '+temp+'&#xB0;F, already in the target range ('+rule.minF+'&#xB0;F+). Calendar window opens '+fmtDate(origStart)+' but you can apply today.'+urgency+staleNote+'</div>',
+      banner:'<div class="soil-adj-banner early">'
+        +'<strong>&#x1F7E2; Soil ready now &#x2014; move this task up.</strong><br>'
+        +'Your '+days+'-day soil avg is <strong>'+temp+'&#xB0;F</strong>, already above the '+rule.minF+'&#xB0;F activation threshold. '
+        +'The calendar window ('+fmtDate(origStart)+') is based on typical NJ dates, but soil temp is the real trigger. '
+        +margin+dataCtx
+        +'</div>',
       adjustedStart:today, adjustedEnd:origEnd
     };
   }
 
-  // ── CLOSING SOON: within 5°F of closeAt, in or before window ──
+  // ── CLOSING SOON: within 5°F of closeAt ──
   if(rule.closeAt&&(rule.closeAt-temp)<=5&&temp<rule.closeAt&&(beforeWindow||inWindow)){
     return{
       type:'closing',
       pill:'<span class="pill soil-closing">&#x26A0; Closing soon</span>',
-      banner:'<div class="soil-adj-banner closing"><strong>&#x26A0; Window closing fast.</strong> Soil is '+temp+'&#xB0;F &#x2014; only '+(rule.closeAt-temp).toFixed(1)+'&#xB0;F from closing at '+rule.closeAt+'&#xB0;F. Apply as soon as possible.'+staleNote+'</div>',
+      banner:'<div class="soil-adj-banner closing">'
+        +'<strong>&#x26A0; Window closing fast &#x2014; apply this week.</strong><br>'
+        +'Your '+days+'-day soil avg is <strong>'+temp+'&#xB0;F</strong> &#x2014; only '+(rule.closeAt-temp).toFixed(1)+'&#xB0;F from the '+rule.closeAt+'&#xB0;F cutoff. '
+        +'At this rate of warming, you may have only a few days before pre-emergent becomes ineffective. '
+        +'Prioritize this task above all others right now.'+dataCtx
+        +'</div>',
       adjustedStart:beforeWindow?today:origStart, adjustedEnd:origEnd
     };
   }
 
-  // ── DELAYED: soil still too cold but calendar window has opened ──
+  // ── DELAYED: avg too cold but calendar window already opened ──
   if(temp<rule.minF&&(inWindow||pastWindow)){
     return{
       type:'delayed',
       pill:'<span class="pill soil-delayed">&#x1F321; Waiting on soil</span>',
-      banner:'<div class="soil-adj-banner delayed"><strong>&#x23F3; Hold off &#x2014; soil not ready yet.</strong> Soil is '+temp+'&#xB0;F, needs '+rule.minF+'&#xB0;F to be effective. Still '+(rule.minF-temp).toFixed(1)+'&#xB0;F short. Wait for soil to warm before applying.'+staleNote+'</div>',
+      banner:'<div class="soil-adj-banner delayed">'
+        +'<strong>&#x23F3; Hold off &#x2014; soil not warm enough yet.</strong><br>'
+        +'Your '+days+'-day soil avg is <strong>'+temp+'&#xB0;F</strong>, still '+(rule.minF-temp).toFixed(1)+'&#xB0;F short of the '+rule.minF+'&#xB0;F minimum. '
+        +'Applying before soil reaches this threshold means the product won\'t activate correctly, wasting material and missing the window. '
+        +'Check back daily and apply as soon as the 5-day avg clears '+rule.minF+'&#xB0;F.'+dataCtx
+        +'</div>',
       adjustedStart:null, adjustedEnd:origEnd
     };
   }
 
-  return null; // no adjustment needed — calendar dates are fine
+  return null;
 }
 
 // ═══════════════════════════════════════════════
@@ -1525,7 +1576,7 @@ function renderConflict(){
 function renderTasks(){
   var clMap=getConflictMap(),allC=getConflicts(),today=todayISO();
   var last10=S.wxData&&S.wxData.length?S.wxData[S.wxData.length-1].date:today;
-  var latestSoil=getLatestSoil(),lawn=S.lawn;
+  var soilAvg=getSoilAverage(),lawn=S.lawn;
   var warnHtml=(lawn&&lawn.is_warm_season)
     ?'<div class="warm-notice">⚠️ <strong>Warm-season grass zone detected.</strong> This schedule uses Jonathan Green cool-season products as reference. Timing and products differ for Bermuda, Zoysia, or St. Augustine.</div>':'';
 
@@ -1534,7 +1585,7 @@ function renderTasks(){
     var tC=allC.filter(function(c){return c.tasks.indexOf(t.id)>=0;});
 
     // ── Soil adjustment ──
-    var adj=(!done&&latestSoil)?getSoilAdjustedWindow(t,latestSoil,today):null;
+    var adj=(!done&&soilAvg)?getSoilAdjustedWindow(t,soilAvg,today):null;
     var displayStart=adj&&adj.adjustedStart?adj.adjustedStart:t.windowStart;
     var displayEnd=adj&&adj.adjustedEnd?adj.adjustedEnd:t.windowEnd;
 
@@ -1544,15 +1595,19 @@ function renderTasks(){
       if(best&&best.tier!=='bad'){var dow=new Date(best.day.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'});wxPill='<span class="pill wx-best">&#x2B50; '+dow+' '+fmtShort(best.day.date)+'</span>';}
     }
     var soilPill='';
-    if(!done&&SOIL_RULES[t.id]&&latestSoil){
-      if(adj){
-        soilPill=adj.pill;
+    if(!done&&SOIL_RULES[t.id]){
+      if(soilAvg){
+        if(adj){
+          soilPill=adj.pill;
+        } else {
+          var ss=getSoilStatus(t.id);
+          if(ss.status==='go')soilPill='<span class="pill soil-go">&#x1F321; Soil &#x2713; '+soilAvg.avg+'&#xB0;F avg</span>';
+          else if(ss.status==='no-go')soilPill='<span class="pill soil-nogo">&#x1F321; Window closed</span>';
+          else if(ss.status==='caution')soilPill='<span class="pill soil-caut">&#x1F321; Marginal '+soilAvg.avg+'&#xB0;F</span>';
+          else if(ss.status==='too-cold')soilPill='<span class="pill soil-caut">&#x1F321; Too cold '+soilAvg.avg+'&#xB0;F</span>';
+        }
       } else {
-        var ss=getSoilStatus(t.id);
-        if(ss.status==='go')soilPill='<span class="pill soil-go">&#x1F321; Soil &#x2713;</span>';
-        else if(ss.status==='no-go')soilPill='<span class="pill soil-nogo">&#x1F321; Soil &#x2717;</span>';
-        else if(ss.status==='caution')soilPill='<span class="pill soil-caut">&#x1F321; Marginal</span>';
-        else if(ss.status==='too-cold')soilPill='<span class="pill soil-caut">&#x1F321; Too cold</span>';
+        soilPill='<span class="pill soil-caut">&#x1F321; No soil data</span>';
       }
     }
 
@@ -1695,7 +1750,7 @@ function renderWeather(){
 // ─── SOIL TAB ─────────────────────────────────
 function renderSoil(){
   var el=document.getElementById('tab-soil');
-  var latest=getLatestSoil(),zone=latest?getSoilZone(latest.temp_f):null,pct=latest?tmpToGaugePct(latest.temp_f):37;
+  var latest=getLatestSoil();
 
   // pH Card
   var lph=S.phLogs&&S.phLogs.length?S.phLogs[0]:null;
@@ -1745,16 +1800,58 @@ function renderSoil(){
   // Rutgers / NJWxNet button (NJ users only)
   var njStation=S.lawn?getClosestNJStation(S.lawn.lat,S.lawn.lon):null;
 
-  // Soil Temp Gauge
+  // Soil Temp Gauge + 5-day tracker
+  var sa=getSoilAverage();
+  var gaugeTemp=sa?sa.avg:(latest?latest.temp_f:null);
+  var gaugeZone=gaugeTemp?getSoilZone(gaugeTemp):null;
+  var gaugePct=gaugeTemp?tmpToGaugePct(gaugeTemp):37;
+
   html+='<div class="soil-card">';
-  if(latest){
-    html+='<div><div class="cur-tmp-num" style="color:'+zone.color+'">'+latest.temp_f+'&#xB0;F</div>'
-      +'<div class="cur-tmp-sub">Logged '+fmtDate(latest.reading_date)+'</div>'
-      +'<div class="cur-tmp-zone" style="color:'+zone.color+'">'+zone.label+'</div></div>';
-  }else{
-    html+='<div style="text-align:center;padding:.5rem 0 .7rem"><div style="font-size:2rem;margin-bottom:.3rem">&#x1F321;</div><div class="cur-tmp-sub">No soil temp logged yet</div></div>';
+
+  // 5-day tracker
+  var today5=todayISO();
+  var trackerHtml='<div style="margin-bottom:.88rem">';
+  trackerHtml+='<div style="font-size:.74rem;font-weight:700;color:var(--tmu);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.52rem">&#x1F4CA; 5-Day Soil Temp Log</div>';
+  trackerHtml+='<div style="display:flex;gap:.42rem;margin-bottom:.52rem">';
+  // Build last 5 calendar days
+  var byDate5={};
+  S.soilLogs.forEach(function(r){if(!byDate5[r.reading_date])byDate5[r.reading_date]=r;});
+  for(var di=4;di>=0;di--){
+    var d=addDays(today5,-di);
+    var r=byDate5[d];
+    var dow=new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'});
+    var isToday=d===today5;
+    if(r){
+      var z5=getSoilZone(r.temp_f);
+      trackerHtml+='<div style="flex:1;text-align:center;background:'+z5.color+'18;border:2px solid '+z5.color+';border-radius:9px;padding:.42rem .2rem">'
+        +'<div style="font-size:.62rem;color:var(--tmu);font-weight:700">'+(isToday?'Today':dow)+'</div>'
+        +'<div style="font-size:.95rem;font-weight:800;color:'+z5.color+'">'+r.temp_f+'&#xB0;</div>'
+        +'</div>';
+    } else {
+      trackerHtml+='<div style="flex:1;text-align:center;background:var(--bg-sub);border:2px dashed var(--border);border-radius:9px;padding:.42rem .2rem;opacity:.6">'
+        +'<div style="font-size:.62rem;color:var(--tmu);font-weight:700">'+(isToday?'Today':dow)+'</div>'
+        +'<div style="font-size:.95rem;color:var(--tmu)">&#x2014;</div>'
+        +'</div>';
+    }
   }
-  html+='<div class="gauge-bar"><div class="gauge-ndl" style="left:'+pct+'%"></div></div>'
+  trackerHtml+='</div>';
+
+  if(sa){
+    var avgColor=gaugeZone?gaugeZone.color:'var(--gm)';
+    trackerHtml+='<div style="display:flex;align-items:center;gap:.62rem;padding:.52rem .72rem;background:'+avgColor+'12;border:1.5px solid '+avgColor+';border-radius:9px">';
+    trackerHtml+='<div style="font-size:1.45rem;font-weight:800;color:'+avgColor+'">'+sa.avg+'&#xB0;F</div>';
+    trackerHtml+='<div><div style="font-size:.78rem;font-weight:700;color:var(--tb)">';
+    trackerHtml+=sa.isPartial?sa.days+'-Day Average <span style="color:var(--at);font-size:.7rem">(partial &#x2014; need '+(5-sa.days)+' more day'+(5-sa.days>1?'s':'')+' for full window)</span>':'5-Day Average';
+    trackerHtml+='</div><div style="font-size:.72rem;color:var(--tmu)">'+(gaugeZone?gaugeZone.label:'')+(sa.isPartial?' &#x2014; Log daily readings for accurate task decisions':'')+'</div></div>';
+    trackerHtml+='</div>';
+  } else {
+    trackerHtml+='<div style="font-size:.8rem;color:var(--tmu);text-align:center;padding:.38rem 0">Log soil temps over 5 days to unlock accurate task timing.</div>';
+  }
+  trackerHtml+='</div>';
+  html+=trackerHtml;
+
+  // Gauge bar (using avg if available)
+  html+='<div class="gauge-bar"><div class="gauge-ndl" style="left:'+gaugePct+'%"></div></div>'
     +'<div class="gauge-lbls"><span>20&#xB0;</span><span>35&#xB0;</span><span>50&#xB0;</span><span>55&#xB0;</span><span>65&#xB0;</span><span>80&#xB0;</span><span>100&#xB0;</span></div>'
     +'<div class="gauge-key">'
     +'<span class="gkp gkp-cold">&#x2744; &lt;35&#xB0;</span><span class="gkp gkp-cool">35&#x2013;50&#xB0; Dormant</span>'
@@ -1789,7 +1886,8 @@ function renderSoil(){
   // Task go/no-go
   var pending=S.tasks.filter(function(t){return!S.logs[t.id]&&SOIL_RULES[t.id];});
   if(pending.length){
-    html+='<div class="sec-lbl">🟢 Task Soil Temp Status</div>';
+    var saLabel=sa?(sa.isPartial?sa.days+'-day avg: '+sa.avg+'&#xB0;F':'5-day avg: '+sa.avg+'&#xB0;F'):'No data yet';
+    html+='<div class="sec-lbl">&#x1F321; Task Readiness <span style="font-weight:400;font-size:.78rem;color:var(--tmu)">('+saLabel+')</span></div>';
     pending.forEach(function(t){
       var rule=SOIL_RULES[t.id],ss=getSoilStatus(t.id);
       var rowCls=ss.status==='go'?'go':ss.status==='caution'?'caution':ss.status==='no-go'?'no-go':ss.status==='too-cold'?'too-cold':'unknown';
