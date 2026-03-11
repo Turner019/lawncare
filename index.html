@@ -369,6 +369,15 @@
 .ph-rec.acid{background:var(--abg);border-color:var(--ab);color:var(--at)}
 .ph-rec.ideal{background:var(--gp);border-color:var(--border-s);color:var(--gd)}
 .ph-rec.alkaline{background:var(--rbg);border-color:var(--rb);color:var(--rt)}
+.pill.soil-early{border-color:#2d8a50;color:#1a5a30;background:#d0f0e0}
+.pill.soil-closing{border-color:#c05000;color:#7a2800;background:#ffe0c8}
+.pill.soil-delayed{border-color:#5090e0;color:#1a3a7a;background:#ddeeff}
+.pill.soil-closed{border-color:#c02020;color:#8a0000;background:#ffe0e0}
+.soil-adj-banner{border-radius:8px;padding:.62rem .82rem;font-size:.82rem;line-height:1.6;border:1.5px solid;margin:.52rem 1rem .1rem}
+.soil-adj-banner.early{background:#d0f0e0;border-color:#2d8a50;color:#1a5a30}
+.soil-adj-banner.closing{background:#ffe0c8;border-color:#c05000;color:#7a2800}
+.soil-adj-banner.delayed{background:#ddeeff;border-color:#5090e0;color:#1a3a7a}
+.soil-adj-banner.closed{background:#ffe0e0;border-color:#c02020;color:#8a0000}
 /* TOAST */
 .toast{position:fixed;bottom:calc(var(--sb) + 5rem);left:50%;transform:translateX(-50%) translateY(16px);background:var(--gd);color:#fff;padding:.6rem 1.3rem;border-radius:22px;font-size:.84rem;font-weight:700;opacity:0;transition:all .25s;pointer-events:none;z-index:500;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.2)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -1403,6 +1412,65 @@ function getSoilStatus(tid){
 function tmpToGaugePct(f){return Math.min(100,Math.max(0,((f-20)/80)*100));}
 
 // ═══════════════════════════════════════════════
+// SOIL-ADJUSTED WINDOW ENGINE
+// Returns null if no adjustment needed, otherwise:
+// {type, pill, banner, adjustedStart, adjustedEnd}
+// ═══════════════════════════════════════════════
+function getSoilAdjustedWindow(task, latestSoil, today){
+  var rule=SOIL_RULES[task.id];
+  if(!rule||!latestSoil) return null;
+
+  var temp=latestSoil.temp_f;
+  var age=daysBetween(latestSoil.reading_date, today);
+  var staleNote=age>7?' Reading is '+age+' days old &#x2014; log a fresh measurement for accuracy.':'';
+  var origStart=task.windowStart, origEnd=task.windowEnd;
+  var beforeWindow=today<origStart, inWindow=today>=origStart&&today<=origEnd, pastWindow=today>origEnd;
+
+  // ── CLOSED: pre-emergent window past closeAt ──
+  if(rule.closeAt&&temp>=rule.closeAt){
+    return{
+      type:'closed',
+      pill:'<span class="pill soil-closed">&#x1F321; Window closed</span>',
+      banner:'<div class="soil-adj-banner closed"><strong>&#x1F6AB; Pre-emergent window is CLOSED.</strong> Soil is '+temp+'&#xB0;F &#x2014; crabgrass has already germinated above '+rule.closeAt+'&#xB0;F. Do not apply &#x2014; it will not be effective this season.'+staleNote+'</div>',
+      adjustedStart:null, adjustedEnd:null
+    };
+  }
+
+  // ── EARLY: soil already in range before calendar window opens ──
+  if(temp>=rule.minF&&beforeWindow){
+    var urgency=rule.closeAt?' Apply before soil hits '+rule.closeAt+'&#xB0;F (currently '+Math.round(rule.closeAt-temp)+'&#xB0;F margin).':' Apply while conditions are right.';
+    return{
+      type:'early',
+      pill:'<span class="pill soil-early">&#x1F321; Soil ready early</span>',
+      banner:'<div class="soil-adj-banner early"><strong>&#x1F7E2; Soil ready now &#x2014; move this up.</strong> Soil is '+temp+'&#xB0;F, already in the target range ('+rule.minF+'&#xB0;F+). Calendar window opens '+fmtDate(origStart)+' but you can apply today.'+urgency+staleNote+'</div>',
+      adjustedStart:today, adjustedEnd:origEnd
+    };
+  }
+
+  // ── CLOSING SOON: within 5°F of closeAt, in or before window ──
+  if(rule.closeAt&&(rule.closeAt-temp)<=5&&temp<rule.closeAt&&(beforeWindow||inWindow)){
+    return{
+      type:'closing',
+      pill:'<span class="pill soil-closing">&#x26A0; Closing soon</span>',
+      banner:'<div class="soil-adj-banner closing"><strong>&#x26A0; Window closing fast.</strong> Soil is '+temp+'&#xB0;F &#x2014; only '+(rule.closeAt-temp).toFixed(1)+'&#xB0;F from closing at '+rule.closeAt+'&#xB0;F. Apply as soon as possible.'+staleNote+'</div>',
+      adjustedStart:beforeWindow?today:origStart, adjustedEnd:origEnd
+    };
+  }
+
+  // ── DELAYED: soil still too cold but calendar window has opened ──
+  if(temp<rule.minF&&(inWindow||pastWindow)){
+    return{
+      type:'delayed',
+      pill:'<span class="pill soil-delayed">&#x1F321; Waiting on soil</span>',
+      banner:'<div class="soil-adj-banner delayed"><strong>&#x23F3; Hold off &#x2014; soil not ready yet.</strong> Soil is '+temp+'&#xB0;F, needs '+rule.minF+'&#xB0;F to be effective. Still '+(rule.minF-temp).toFixed(1)+'&#xB0;F short. Wait for soil to warm before applying.'+staleNote+'</div>',
+      adjustedStart:null, adjustedEnd:origEnd
+    };
+  }
+
+  return null; // no adjustment needed — calendar dates are fine
+}
+
+// ═══════════════════════════════════════════════
 // MAIN RENDER
 // ═══════════════════════════════════════════════
 function renderApp(){
@@ -1464,45 +1532,69 @@ function renderTasks(){
   var html=warnHtml+S.tasks.map(function(t){
     var done=!!S.logs[t.id],date=S.logs[t.id]||null,cl=clMap[t.id]||null,open=S.expandedTask===t.id;
     var tC=allC.filter(function(c){return c.tasks.indexOf(t.id)>=0;});
+
+    // ── Soil adjustment ──
+    var adj=(!done&&latestSoil)?getSoilAdjustedWindow(t,latestSoil,today):null;
+    var displayStart=adj&&adj.adjustedStart?adj.adjustedStart:t.windowStart;
+    var displayEnd=adj&&adj.adjustedEnd?adj.adjustedEnd:t.windowEnd;
+
     var wxPill='';
-    if(!done&&S.wxData&&t.windowStart<=last10&&t.windowEnd>=today){
+    if(!done&&S.wxData&&displayStart<=last10&&displayEnd>=today){
       var best=getBestDay(t);
-      if(best&&best.tier!=='bad'){var dow=new Date(best.day.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'});wxPill='<span class="pill wx-best">⭐ '+dow+' '+fmtShort(best.day.date)+'</span>';}
+      if(best&&best.tier!=='bad'){var dow=new Date(best.day.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'});wxPill='<span class="pill wx-best">&#x2B50; '+dow+' '+fmtShort(best.day.date)+'</span>';}
     }
     var soilPill='';
     if(!done&&SOIL_RULES[t.id]&&latestSoil){
-      var ss=getSoilStatus(t.id);
-      if(ss.status==='go')soilPill='<span class="pill soil-go">🌡 Soil ✓</span>';
-      else if(ss.status==='no-go')soilPill='<span class="pill soil-nogo">🌡 Soil ✗</span>';
-      else if(ss.status==='caution')soilPill='<span class="pill soil-caut">🌡 Marginal</span>';
-      else if(ss.status==='too-cold')soilPill='<span class="pill soil-caut">🌡 Too cold</span>';
+      if(adj){
+        soilPill=adj.pill;
+      } else {
+        var ss=getSoilStatus(t.id);
+        if(ss.status==='go')soilPill='<span class="pill soil-go">&#x1F321; Soil &#x2713;</span>';
+        else if(ss.status==='no-go')soilPill='<span class="pill soil-nogo">&#x1F321; Soil &#x2717;</span>';
+        else if(ss.status==='caution')soilPill='<span class="pill soil-caut">&#x1F321; Marginal</span>';
+        else if(ss.status==='too-cold')soilPill='<span class="pill soil-caut">&#x1F321; Too cold</span>';
+      }
     }
-    var cardCls='tc'+(done?' done':'')+(cl==='danger'?' cdanger':'')+(cl==='warning'&&!done?' cwarn':'');
+
+    // Highlight card border when soil adjustment is urgent
+    var adjBorder=adj&&(adj.type==='early'||adj.type==='closing')?' style="border-color:#2d8a50;box-shadow:0 0 0 2px rgba(45,138,80,.15)"':'';
+    var adjBorderCls=adj&&adj.type==='closed'?' cdanger':adj&&(adj.type==='closing')?' cwarn':'';
+
+    var cardCls='tc'+(done?' done':'')+(cl==='danger'?' cdanger':adjBorderCls)+(cl==='warning'&&!done?' cwarn':'');
     var cfHtml=tC.map(function(c){var lv=c.level==='danger'?'danger':c.level==='warning'?'warn':'ok';return'<div class="cf-box '+lv+'"><strong>'+c.title+'</strong><br>'+c.body+'</div>';}).join('');
     var qty=t.bags+(lawn&&lawn.sqft?' (for '+(lawn.sqft).toLocaleString()+' sqft)':'');
-    return '<div class="'+cardCls+'" id="card-'+t.id+'">'
+
+    // Window row: show adjusted vs original
+    var windowDisplay=fmtDate(displayStart)+' &#x2192; '+fmtDate(displayEnd);
+    if(adj&&adj.adjustedStart&&adj.adjustedStart!==t.windowStart){
+      windowDisplay='<strong style="color:var(--gm)">'+fmtDate(displayStart)+'</strong> &#x2192; '+fmtDate(displayEnd)
+        +' <span style="font-size:.74rem;color:var(--tmu)">(calendar: '+fmtDate(t.windowStart)+')</span>';
+    }
+
+    return '<div class="'+cardCls+'" id="card-'+t.id+'"'+(adj&&!done?adjBorder:'')+'>'
       +'<div class="tc-hdr" onclick="toggleExpand(\''+t.id+'\')">'
       +'<div class="tc-cb '+(done?'chk':'')+'" onclick="event.stopPropagation();quickToggle(\''+t.id+'\')"></div>'
       +'<div class="tc-info">'
-      +'<div class="tc-month">'+t.icon+' '+t.month+(cl==='danger'?' <span style="color:#c02020;font-weight:800">⚠ CONFLICT</span>':'')+(cl==='warning'?' <span style="color:#a06000;font-weight:800">⚠ WARNING</span>':'')+'</div>'
+      +'<div class="tc-month">'+t.icon+' '+t.month+(cl==='danger'?' <span style="color:#c02020;font-weight:800">&#x26A0; CONFLICT</span>':'')+(cl==='warning'?' <span style="color:#a06000;font-weight:800">&#x26A0; WARNING</span>':'')+'</div>'
       +'<div class="tc-name">'+t.name+'</div>'
       +'<div class="tc-meta"><span class="pill '+t.priority+'">'+(t.priority==='critical'?'&#x26A0; Critical &#x2014; Do not skip':t.priority==='high'?'&#x25B2; High priority':'&#x25CF; Routine')+'</span><span class="pill bags">&#x1F6CD; '+t.bags+' &#x2014; check bag size</span>'+(date?'<span class="pill done-date">&#x2713; '+fmtDate(date)+'</span>':'')+(cl==='danger'?'<span class="pill tdanger">Timing Issue</span>':'')+wxPill+soilPill+'</div>'
       +'</div>'
-      +'<button class="tc-exp-btn '+(open?'open':'')+'">▾</button>'
+      +'<button class="tc-exp-btn '+(open?'open':'')+'">&#x25BE;</button>'
       +'</div>'
+      +(adj&&!done?adj.banner:'')
       +'<div class="tc-detail '+(open?'open':'')+'">'
       +'<div class="dr"><span class="dl">Why</span><span class="dv">'+t.why+'</span></div>'
       +'<div class="dr"><span class="dl">When</span><span class="dv">'+t.when+'</span></div>'
-      +'<div class="dr"><span class="dl">Window</span><span class="dv">'+fmtDate(t.windowStart)+' → '+fmtDate(t.windowEnd)+'</span></div>'
+      +'<div class="dr"><span class="dl">Window</span><span class="dv">'+windowDisplay+'</span></div>'
       +'<div class="dr"><span class="dl">Qty</span><span class="dv">'+qty+'<br><span style="font-size:.78rem;color:var(--tmu)">Jonathan Green sells this product in multiple bag sizes. Check the label for coverage area before buying. <a href="https://www.jonathangreen.com/collections/all" target="_blank" style="color:var(--gm);font-weight:700">Browse products &#x2192;</a></span></span></div>'
       +'<div class="dr"><span class="dl">Water</span><span class="dv">'+t.water+'</span></div>'
       +'<div class="dr"><span class="dl">Tip</span><span class="dv">'+t.tip+'</span></div>'
       +'<div class="dr"><span class="dl">Weather</span><span class="dv" style="font-style:italic;color:var(--tmu)">'+t.weatherRule+'</span></div>'
       +cfHtml
-      +'<div class="log-sec"><div class="log-lbl">'+(done?'Logged — update or remove:':'Log when you applied this:')+'</div>'
+      +'<div class="log-sec"><div class="log-lbl">'+(done?'Logged &#x2014; update or remove:':'Log when you applied this:')+'</div>'
       +'<div class="log-row"><input type="date" class="date-in" id="di-'+t.id+'" value="'+(date||todayISO())+'"/>'
-      +'<button class="btn-log" onclick="logDate(\''+t.id+'\')">'+(done?'Update':'Log ✓')+'</button></div>'
-      +(done?'<button class="btn-clr" onclick="clearTask(\''+t.id+'\')">✕ Remove Log</button>':'')
+      +'<button class="btn-log" onclick="logDate(\''+t.id+'\')">'+(done?'Update':'Log &#x2713;')+'</button></div>'
+      +(done?'<button class="btn-clr" onclick="clearTask(\''+t.id+'\')">&#x2715; Remove Log</button>':'')
       +'</div></div></div>';
   }).join('');
   html+='<div style="margin-top:1.2rem;padding:.88rem 1rem;background:var(--bg-sub);border:1.5px solid var(--border);border-radius:var(--r);font-size:.74rem;color:var(--tmu);line-height:1.7">'
