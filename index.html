@@ -1521,7 +1521,11 @@ function renderWeather(){
   var html='';
 
   // ── Rainfall Widget ──
-  var pastDays=wd.filter(function(d){return d.date<=today;}).slice(-14);
+  var allData=S.wxData;
+  var pastDays=allData.filter(function(d){return d.date<today;}).slice(-14);
+  // include today too
+  var todayData=allData.find(function(d){return d.date===today;});
+  if(todayData) pastDays=pastDays.concat([todayData]);
   if(pastDays.length){
     var totalMM=pastDays.reduce(function(s,d){return s+(d.rainMM||0);},0);
     var totalIn=(totalMM/25.4).toFixed(2);
@@ -1540,7 +1544,7 @@ function renderWeather(){
     var rainColor=vClass==='dry'?'var(--rb)':vClass==='sat'?'var(--at)':'var(--gm)';
     html+='<div class="rain-card">';
     html+='<div class="rain-hdr"><div class="rain-total" style="color:'+rainColor+'">'+totalIn+'"</div>';
-    html+='<div class="rain-meta">Rainfall last '+pastDays.length+' days<br>'+totalMM.toFixed(1)+'mm total &middot; avg '+(totalMM/pastDays.length).toFixed(1)+'mm/day</div></div>';
+    html+='<div class="rain-meta">Rainfall last 14 days (incl. today)<br>'+totalMM.toFixed(1)+'mm total &middot; avg '+(totalMM/pastDays.length).toFixed(1)+'mm/day</div></div>';
     html+='<div class="rain-verdict '+vClass+'"><strong>'+verdict+'</strong> &#x2014; '+vMsg+'</div>';
     html+='<div class="rain-bars">'+barsHtml+'</div>';
     html+='</div>';
