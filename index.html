@@ -1425,10 +1425,10 @@ function renderNTB(){
   if(!pending.length){el.classList.remove('show');return;}
   var next=pending.find(function(t){return t.windowStart<=today;})||pending[0];
   el.classList.add('show');
-  document.getElementById('ntb-name').textContent=next.icon+' '+next.name;
-  document.getElementById('ntb-win').textContent=fmtDate(next.windowStart)+' – '+fmtDate(next.windowEnd);
-  document.getElementById('ntb-bags').textContent=next.bags;
-  document.getElementById('ntb-why').textContent=next.why;
+  document.getElementById('ntb-name').innerHTML=next.icon+' '+next.name;
+  document.getElementById('ntb-win').innerHTML=fmtDate(next.windowStart)+' &#x2013; '+fmtDate(next.windowEnd);
+  document.getElementById('ntb-bags').innerHTML=next.bags;
+  document.getElementById('ntb-why').innerHTML=next.why;
   var bd=document.getElementById('ntb-best');
   if(S.wxData){
     var best=getBestDay(next);
