@@ -1486,7 +1486,7 @@ function renderTasks(){
       +'<div class="tc-info">'
       +'<div class="tc-month">'+t.icon+' '+t.month+(cl==='danger'?' <span style="color:#c02020;font-weight:800">⚠ CONFLICT</span>':'')+(cl==='warning'?' <span style="color:#a06000;font-weight:800">⚠ WARNING</span>':'')+'</div>'
       +'<div class="tc-name">'+t.name+'</div>'
-      +'<div class="tc-meta"><span class="pill '+t.priority+'">'+t.priority.toUpperCase()+'</span><span class="pill bags">'+t.bags+'</span>'+(date?'<span class="pill done-date">✓ '+fmtDate(date)+'</span>':'')+(cl==='danger'?'<span class="pill tdanger">Timing Issue</span>':'')+wxPill+soilPill+'</div>'
+      +'<div class="tc-meta"><span class="pill '+t.priority+'">'+(t.priority==='critical'?'&#x26A0; Critical &#x2014; Do not skip':t.priority==='high'?'&#x25B2; High priority':'&#x25CF; Routine')+'</span><span class="pill bags">&#x1F6CD; '+t.bags+' &#x2014; check bag size</span>'+(date?'<span class="pill done-date">&#x2713; '+fmtDate(date)+'</span>':'')+(cl==='danger'?'<span class="pill tdanger">Timing Issue</span>':'')+wxPill+soilPill+'</div>'
       +'</div>'
       +'<button class="tc-exp-btn '+(open?'open':'')+'">▾</button>'
       +'</div>'
@@ -1494,7 +1494,7 @@ function renderTasks(){
       +'<div class="dr"><span class="dl">Why</span><span class="dv">'+t.why+'</span></div>'
       +'<div class="dr"><span class="dl">When</span><span class="dv">'+t.when+'</span></div>'
       +'<div class="dr"><span class="dl">Window</span><span class="dv">'+fmtDate(t.windowStart)+' → '+fmtDate(t.windowEnd)+'</span></div>'
-      +'<div class="dr"><span class="dl">Qty</span><span class="dv">'+qty+'</span></div>'
+      +'<div class="dr"><span class="dl">Qty</span><span class="dv">'+qty+'<br><span style="font-size:.78rem;color:var(--tmu)">Jonathan Green sells this product in multiple bag sizes. Check the label for coverage area before buying. <a href="https://www.jonathangreen.com/collections/all" target="_blank" style="color:var(--gm);font-weight:700">Browse products &#x2192;</a></span></span></div>'
       +'<div class="dr"><span class="dl">Water</span><span class="dv">'+t.water+'</span></div>'
       +'<div class="dr"><span class="dl">Tip</span><span class="dv">'+t.tip+'</span></div>'
       +'<div class="dr"><span class="dl">Weather</span><span class="dv" style="font-style:italic;color:var(--tmu)">'+t.weatherRule+'</span></div>'
@@ -1505,6 +1505,14 @@ function renderTasks(){
       +(done?'<button class="btn-clr" onclick="clearTask(\''+t.id+'\')">✕ Remove Log</button>':'')
       +'</div></div></div>';
   }).join('');
+  html+='<div style="margin-top:1.2rem;padding:.88rem 1rem;background:var(--bg-sub);border:1.5px solid var(--border);border-radius:var(--r);font-size:.74rem;color:var(--tmu);line-height:1.7">'
+    +'<strong style="color:var(--tb);display:block;margin-bottom:.32rem">&#x1F4CB; About GrassTask Recommendations</strong>'
+    +'GrassTask uses only <a href="https://www.jonathangreen.com" target="_blank" style="color:var(--gm);font-weight:700">Jonathan Green</a> lawn care products. '
+    +'Product recommendations are based on your lawn profile and general best practices for cool-season turf. '
+    +'Results are not guaranteed &#x2014; lawn conditions, soil, climate, and application technique all affect outcomes. '
+    +'Always read and follow product label directions before applying. '
+    +'GrassTask is an independent scheduling tool and is not affiliated with or endorsed by Jonathan Green &amp; Sons, Inc.'
+    +'</div>';
   document.getElementById('tab-tasks').innerHTML=html;
 }
 
