@@ -1003,7 +1003,7 @@ function showToast(m){var e=document.getElementById('toast');e.textContent=m;e.c
 // SUPABASE / AUTH
 // ═══════════════════════════════════════════════
 function initApp(){
-  if(!SUPABASE_URL||SUPABASE_URL==='https://iwuhmghfoncuebffxzuk.supabase.co'||!SUPABASE_ANON){showScreen('setup');return;}
+  if(!SUPABASE_URL||!SUPABASE_ANON){showScreen('setup');return;}
   db=supabase.createClient(SUPABASE_URL,SUPABASE_ANON);
   db.auth.getSession().then(function(r){
     if(r.data.session){S.user=r.data.session.user;loadDashboard();}
