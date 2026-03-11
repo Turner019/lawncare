@@ -6,11 +6,11 @@
   <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
-  <meta name="apple-mobile-web-app-title" content="LawnCare"/>
+  <meta name="apple-mobile-web-app-title" content="GrassTask"/>
   <meta name="theme-color" content="#f4f8ee"/>
   <link rel="manifest" href="manifest.json"/>
   <link rel="apple-touch-icon" href="icon-192.png"/>
-  <title>LawnCare</title>
+  <title>GrassTask</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Literata:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -401,7 +401,7 @@
   <div class="ctr">
     <div class="auth-card">
       <div class="auth-logo">🌿</div>
-      <div class="auth-title">LawnCare</div>
+      <div class="auth-title">GrassTask</div>
       <div class="auth-sub" id="auth-sub">Sign in to your account</div>
       <div class="auth-err" id="auth-err"></div>
       <div class="auth-ok"  id="auth-ok"></div>
@@ -432,7 +432,7 @@
 <div id="screen-dashboard" class="screen">
   <div class="dash-hdr">
     <div class="dash-hdr-row">
-      <div><div class="dash-title">🌿 LawnCare</div><div class="dash-user" id="dash-email"></div></div>
+      <div><div class="dash-title">🌿 GrassTask</div><div class="dash-user" id="dash-email"></div></div>
       <button class="btn-logout" onclick="handleLogout()">Sign out</button>
     </div>
   </div>
@@ -1514,7 +1514,9 @@ function renderWeather(){
   if(S.wxLoading){el.innerHTML='<div class="wx-loading"><div style="font-size:2rem;margin-bottom:.7rem">⏳</div><strong>Loading forecast…</strong><div style="font-size:.84rem;margin-top:.3rem">Fetching 10-day forecast</div></div>';return;}
   if(S.wxErr){el.innerHTML='<div class="wx-err"><strong>⚠️ Could not load weather</strong><br><br><span style="font-family:\'JetBrains Mono\',monospace;font-size:.76rem">'+esc(S.wxErr)+'</span><br><br>Uses Open-Meteo (free). Check connection.</div><button class="btn-log" onclick="fetchWeather()" style="width:100%;padding:.72rem;margin-top:.45rem">↻ Try Again</button>';return;}
   if(!S.wxData){el.innerHTML='<div class="wx-loading"><div style="font-size:2.2rem;margin-bottom:.65rem">🌤</div><strong style="color:var(--gd)">10-Day Forecast</strong><div style="font-size:.84rem;margin:.45rem 0 1rem;color:var(--tmu)">Open-Meteo · No API key needed</div><button class="btn-log" onclick="fetchWeather()" style="font-size:.92rem;padding:.72rem 2rem">Load Forecast</button></div>';return;}
-  var wd=S.wxData,today=todayISO(),last10=wd[wd.length-1].date;
+  var today=todayISO();
+  var wd=S.wxData.filter(function(d){return d.date>=today;}).slice(0,10);
+  var last10=wd.length?wd[wd.length-1].date:today;
   var upd=S.wxFetched?S.wxFetched.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):'';
   var html='';
 
